@@ -3,7 +3,7 @@
 !pip install qiskit-aer
 
 
-
+------------------------------------------------------------------------
 
 
 #Experiment 1 Quantum Key Distribution (QKD)
@@ -58,6 +58,7 @@ for i in range(n):
 print("Shared Key:", key)
 
 
+--------------------------------------------------------------------
 
 
 #Experiment 2 BB84 Protocol
@@ -104,7 +105,7 @@ for i in range(n):
 print("Final Key:", shared)
 
 
-
+------------------------------------------------------------------------
 
 
 #Experiment 3 Grover’s Search
