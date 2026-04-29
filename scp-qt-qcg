@@ -1,0 +1,607 @@
+!pip install qiskit qiskit-aer qiskit-ibm-runtime matplotlib pylatexenc
+
+from qiskit import QuantumCircuit, transpile
+from qiskit.visualization import plot_histogram
+
+# Modern Aer simulator (imported from qiskit_aer)
+from qiskit_aer import AerSimulator
+
+print("Imports successful!")
+
+def create_bell_pair():
+    """
+    Creates a Bell pair (maximally entangled state).
+    Qubit 0 goes to Bob, Qubit 1 goes to Alice.
+
+    Returns:
+        QuantumCircuit: 2-qubit circuit prepared in a Bell state
+    """
+    qc = QuantumCircuit(2)
+    qc.h(1)      # Hadamard on qubit 1 (Alice's qubit)
+    qc.cx(1, 0)  # CNOT: control=1, target=0
+    return qc
+
+# Visualize the Bell pair circuit
+bell = create_bell_pair()
+print("Bell Pair Circuit:")
+bell.draw('mpl')
+
+def encode_message(qc, qubit, msg):
+    """
+    Encodes a 2-bit classical message using the superdense coding protocol.
+
+    Args:
+        qc    (QuantumCircuit): The circuit to encode the message on
+        qubit (int)           : Index of Alice's qubit
+        msg   (str)           : 2-bit binary string, e.g. '00', '01', '10', '11'
+
+    Returns:
+        QuantumCircuit: Circuit with encoding gates applied
+
+    Raises:
+        ValueError: If msg is not a valid 2-bit binary string
+    """
+    if len(msg) != 2 or not set(msg).issubset({'0', '1'}):
+        raise ValueError(
+            f"Invalid message '{msg}'. Must be a 2-bit binary string (e.g. '00', '01', '10', '11')."
+        )
+
+    if msg[1] == '1':   # Encode second bit with X
+        qc.x(qubit)
+    if msg[0] == '1':   # Encode first bit with Z
+        qc.z(qubit)
+
+    return qc
+
+print("encode_message() defined.")
+
+def decode_message(qc):
+    """
+    Bob decodes the message by reversing the Bell pair entanglement.
+
+    Args:
+        qc (QuantumCircuit): Circuit after Alice's encoding
+
+    Returns:
+        QuantumCircuit: Circuit with decoding gates applied
+    """
+    qc.cx(1, 0)  # CNOT: control=1 (Alice), target=0 (Bob)
+    qc.h(1)      # Hadamard on Alice's qubit
+    return qc
+
+print("decode_message() defined.")
+
+# Choose the message Alice wants to send
+message = '10'   # Try: '00', '01', '10', '11'
+
+# Step 1: Charlie creates the Bell pair
+#   Qubit 0 -> Bob  |  Qubit 1 -> Alice
+qc = create_bell_pair()
+qc.barrier(label='Charlie\ncreates pair')
+
+# Step 2: Alice encodes her 2-bit message onto qubit 1
+qc = encode_message(qc, 1, message)
+qc.barrier(label='Alice\nencodes')
+
+# Step 3: Bob decodes after receiving Alice's qubit
+qc = decode_message(qc)
+qc.barrier(label='Bob\ndecodes')
+
+# Step 4: Bob measures both qubits
+qc.measure_all()
+
+print(f"Message to send: '{message}'")
+print("\nFull Superdense Coding Circuit:")
+qc.draw('mpl')
+
+shots = 1024
+
+# Initialise the noiseless Aer simulator
+sim = AerSimulator()
+
+# Transpile and run
+compiled_qc = transpile(qc, sim)
+result = sim.run(compiled_qc, shots=shots).result()
+counts = result.get_counts()
+
+print(f"Measurement results : {counts}")
+print(f"Expected message    : '{message}'")
+print(f"Measured message    : '{max(counts, key=counts.get)}'")
+
+plot_histogram(counts, title=f"Ideal Simulator — Message: '{message}'")
+
+from qiskit_aer.noise import NoiseModel, depolarizing_error
+
+# Build a simple depolarizing noise model
+noise_model = NoiseModel()
+
+# 1% error on single-qubit gates
+error_1q = depolarizing_error(0.01, 1)
+noise_model.add_all_qubit_quantum_error(error_1q, ['h', 'x', 'z'])
+
+# 3% error on two-qubit gates (CNOT)
+error_2q = depolarizing_error(0.03, 2)
+noise_model.add_all_qubit_quantum_error(error_2q, ['cx'])
+
+# Run noisy simulation
+noisy_sim = AerSimulator(noise_model=noise_model)
+compiled_noisy = transpile(qc, noisy_sim)
+noisy_result = noisy_sim.run(compiled_noisy, shots=shots).result()
+noisy_counts = noisy_result.get_counts()
+
+# Calculate accuracy
+correct  = noisy_counts.get(message, 0)
+accuracy = (correct / shots) * 100
+
+print(f"Noisy measurement results : {noisy_counts}")
+print(f"Accuracy for '{message}'  : {accuracy:.2f}%")
+
+plot_histogram(
+    noisy_counts,
+    title=f"Noisy Simulator — Message: '{message}' | Accuracy: {accuracy:.1f}%"
+)
+
+import matplotlib.pyplot as plt
+
+messages = ['00', '01', '10', '11']
+all_counts = {}
+
+for msg in messages:
+    qc_test = create_bell_pair()
+    qc_test.barrier()
+    qc_test = encode_message(qc_test, 1, msg)
+    qc_test.barrier()
+    qc_test = decode_message(qc_test)
+    qc_test.measure_all()
+
+    compiled = transpile(qc_test, sim)
+    res = sim.run(compiled, shots=shots).result()
+    all_counts[msg] = res.get_counts()
+    measured = max(res.get_counts(), key=res.get_counts().get)
+    status = 'PASS' if measured == msg else 'FAIL'
+    print(f"[{status}]  Sent: '{msg}'  |  Measured: '{measured}'")
+
+# Plot all four results side by side
+fig, axes = plt.subplots(1, 4, figsize=(14, 3))
+for ax, msg in zip(axes, messages):
+    plot_histogram(all_counts[msg], ax=ax, title=f"Msg: '{msg}'")
+plt.suptitle("Superdense Coding — All Four Messages (Ideal Simulator)", fontsize=13, y=1.02)
+plt.tight_layout()
+plt.show()
+
+# Uncomment to run on real IBM Quantum hardware
+
+# from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2 as Sampler
+# from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+#
+# # Save your credentials once (comment out after first run)
+# QiskitRuntimeService.save_account(
+#     channel='ibm_quantum',
+#     token='YOUR_API_TOKEN',
+#     overwrite=True
+# )
+#
+# # Load account and pick least-busy real backend with >= 2 qubits
+# service = QiskitRuntimeService(channel='ibm_quantum')
+# backend = service.least_busy(operational=True, simulator=False, min_num_qubits=2)
+# print(f"Using backend: {backend.name}")
+#
+# # Transpile the circuit for the chosen backend
+# pm = generate_preset_pass_manager(optimization_level=3, backend=backend)
+# isa_qc = pm.run(qc)
+#
+# # Run using the SamplerV2 primitive
+# sampler = Sampler(backend)
+# job = sampler.run([isa_qc], shots=shots)
+# print(f"Job ID: {job.job_id()}")
+#
+# # Retrieve and display results
+# result   = job.result()
+# hw_counts = result[0].data.meas.get_counts()
+#
+# correct  = hw_counts.get(message, 0)
+# accuracy = (correct / shots) * 100
+# print(f"Hardware counts : {hw_counts}")
+# print(f"Accuracy        : {accuracy:.2f}%")
+# plot_histogram(hw_counts, title=f"Real Hardware — Message: '{message}' | Accuracy: {accuracy:.1f}%")
+
+print("Uncomment the code above and add your IBM Quantum token to run on real hardware.")
+
+
+
+---------------------------------------------------------------------------------------------------------------------------
+
+
+
+!pip install qiskit qiskit-aer qiskit-ibm-runtime matplotlib pylatexenc
+
+import numpy as np
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
+from qiskit.visualization import plot_histogram, plot_bloch_multivector, array_to_latex
+from qiskit.circuit.library import Initialize
+from qiskit.result import marginal_counts
+from qiskit.quantum_info import random_statevector, Statevector
+
+# Modern Aer simulator
+from qiskit_aer import AerSimulator
+
+print("Imports successful!")
+
+def create_bell_pair(qc, a, b):
+    """
+    Creates a Bell pair between qubits a and b.
+
+    Args:
+        qc (QuantumCircuit): Circuit to apply the Bell pair to
+        a  (int)           : Qubit index for first qubit (goes to Alice)
+        b  (int)           : Qubit index for second qubit (goes to Bob)
+    """
+    qc.h(a)     # Put qubit a into |+>
+    qc.cx(a, b) # CNOT: control=a, target=b
+
+# Preview the Bell pair circuit
+preview = QuantumCircuit(2)
+create_bell_pair(preview, 0, 1)
+print("Bell Pair Circuit:")
+preview.draw('mpl')
+
+def alice_gates(qc, psi, a):
+    """
+    Alice's encoding step.
+
+    Args:
+        qc  (QuantumCircuit): Circuit to apply gates to
+        psi (int)           : Index of qubit Alice wants to teleport
+        a   (int)           : Index of Alice's half of Bell pair
+    """
+    qc.cx(psi, a) # CNOT: psi controls a
+    qc.h(psi)     # Hadamard on psi
+
+print("alice_gates() defined.")
+
+def measure_and_send(qc, a, b):
+    """
+    Alice measures her two qubits and stores results in classical bits.
+
+    Args:
+        qc (QuantumCircuit): Circuit to apply measurement to
+        a  (int)           : Index of Alice's psi qubit
+        b  (int)           : Index of Alice's Bell pair qubit
+    """
+    qc.barrier()
+    qc.measure(a, 0) # Measure q0 -> classical bit 0 (crz)
+    qc.measure(b, 1) # Measure q1 -> classical bit 1 (crx)
+
+print("measure_and_send() defined.")
+
+def bob_gates(qc, qubit, crz, crx):
+    """
+    Bob applies classically-controlled correction gates to recover |psi>.
+    Uses the modern if_test() context manager (Qiskit 1.x).
+
+    Args:
+        qc    (QuantumCircuit)   : Circuit to apply gates to
+        qubit (int)              : Index of Bob's qubit (q2)
+        crz   (ClassicalRegister): Classical register holding Alice's crz bit
+        crx   (ClassicalRegister): Classical register holding Alice's crx bit
+    """
+    # Apply X if crx == 1
+    with qc.if_test((crx, 1)):
+        qc.x(qubit)
+    # Apply Z if crz == 1
+    with qc.if_test((crz, 1)):
+        qc.z(qubit)
+
+print("bob_gates() defined.")
+
+# Registers
+qr  = QuantumRegister(3, name="q")
+crz = ClassicalRegister(1, name="crz")  # Alice's measurement of q0
+crx = ClassicalRegister(1, name="crx")  # Alice's measurement of q1
+teleportation_circuit = QuantumCircuit(qr, crz, crx)
+
+## STEP 1 — Telamon creates Bell pair between q1 and q2
+create_bell_pair(teleportation_circuit, 1, 2)
+teleportation_circuit.barrier(label="Telamon\ncreates pair")
+
+## STEP 2 — Alice applies her gates
+alice_gates(teleportation_circuit, 0, 1)
+
+## STEP 3 — Alice measures and sends classical bits
+measure_and_send(teleportation_circuit, 0, 1)
+
+## STEP 4 — Bob decodes using classical bits
+teleportation_circuit.barrier(label="Bob\ndecodes")
+bob_gates(teleportation_circuit, 2, crz, crx)
+
+print("Full Teleportation Circuit:")
+teleportation_circuit.draw('mpl')
+
+# Create a random 1-qubit state
+psi = random_statevector(2)
+
+# Display as a LaTeX vector
+display(array_to_latex(psi, prefix="|\\psi\\rangle = "))
+
+# Show on Bloch sphere
+print("Alice's qubit |psi> on the Bloch sphere:")
+plot_bloch_multivector(psi)
+
+# Create the Initialize instruction from psi
+# Initialize is now in qiskit.circuit.library (Qiskit 1.x)
+init_gate       = Initialize(psi)
+init_gate.label = "init"
+
+print(f"|psi> = {psi}")
+print("Initialize instruction created.")
+
+## FULL CIRCUIT WITH STATEVECTOR VERIFICATION
+qr  = QuantumRegister(3, name="q")
+crz = ClassicalRegister(1, name="crz")
+crx = ClassicalRegister(1, name="crx")
+qc  = QuantumCircuit(qr, crz, crx)
+
+## STEP 0 — Initialize Alice's q0 to |psi>
+qc.append(init_gate, [0])
+qc.barrier()
+
+## STEP 1 — Bell pair
+create_bell_pair(qc, 1, 2)
+qc.barrier()
+
+## STEP 2 — Alice's gates
+alice_gates(qc, 0, 1)
+
+## STEP 3 — Alice measures
+measure_and_send(qc, 0, 1)
+
+## STEP 4 — Bob decodes
+qc.barrier()
+bob_gates(qc, 2, crz, crx)
+
+# Save statevector for inspection
+qc.save_statevector()
+
+print("Teleportation circuit (with statevector save):")
+qc.draw('mpl')
+
+# Run on noiseless AerSimulator
+sim = AerSimulator()
+compiled = transpile(qc, sim)
+result = sim.run(compiled).result()
+out_vector = result.get_statevector()
+
+print("Bloch sphere after teleportation:")
+print("  q0 & q1 (Alice's) are collapsed to |0> or |1>")
+print("  q2 (Bob's) should match the original |psi>")
+plot_bloch_multivector(out_vector)
+
+# Get the inverse of the initialization gate
+inverse_init_gate = init_gate.gates_to_uncompute()
+
+## FULL CIRCUIT WITH INVERSE-INIT VERIFICATION
+qr  = QuantumRegister(3, name="q")
+crz = ClassicalRegister(1, name="crz")
+crx = ClassicalRegister(1, name="crx")
+cr_result = ClassicalRegister(1, name="cr_result")
+qc  = QuantumCircuit(qr, crz, crx, cr_result)
+
+## STEP 0 — Initialize Alice's q0
+qc.append(init_gate, [0])
+qc.barrier()
+
+## STEP 1 — Bell pair
+create_bell_pair(qc, 1, 2)
+qc.barrier()
+
+## STEP 2 — Alice's gates
+alice_gates(qc, 0, 1)
+
+## STEP 3 — Alice measures
+measure_and_send(qc, 0, 1)
+
+## STEP 4 — Bob decodes
+qc.barrier()
+bob_gates(qc, 2, crz, crx)
+
+## STEP 5 — Apply inverse init to q2 then measure
+qc.append(inverse_init_gate, [2])
+qc.measure(2, cr_result)
+
+print("Circuit with inverse initialization verification:")
+qc.draw('mpl')
+
+shots = 1024
+
+# Simulate
+compiled = transpile(qc, sim)
+counts = sim.run(compiled, shots=shots).result().get_counts()
+
+# Marginalize: look at each qubit independently
+qubit_counts = [marginal_counts(counts, [qubit]) for qubit in range(3)]
+
+print("Raw counts:", counts)
+print("\nMarginal counts per qubit:")
+for i, qc_ in enumerate(qubit_counts):
+    print(f"  q{i}: {qc_}")
+
+plot_histogram(qubit_counts, legend=['q0 (Alice psi)', 'q1 (Alice Bell)', 'q2 (Bob)'],
+               title="Teleportation Verification — q2 should be |0> with 100% probability")
+
+def new_bob_gates(qc, a, b, c):
+    """
+    Deferred-measurement version of Bob's gates.
+    Replaces classical control with quantum control (cx, cz).
+
+    Args:
+        qc (QuantumCircuit): Circuit to apply gates to
+        a  (int)           : Alice's psi qubit (q0)
+        b  (int)           : Alice's Bell qubit (q1)
+        c  (int)           : Bob's qubit (q2)
+    """
+    qc.cx(b, c) # Controlled-X: b controls c
+    qc.cz(a, c) # Controlled-Z: a controls c
+
+# Build the deferred-measurement circuit
+qc_deferred = QuantumCircuit(3, 1)
+
+qc_deferred.append(init_gate, [0])
+qc_deferred.barrier()
+
+create_bell_pair(qc_deferred, 1, 2)
+qc_deferred.barrier()
+
+alice_gates(qc_deferred, 0, 1)
+qc_deferred.barrier()
+
+new_bob_gates(qc_deferred, 0, 1, 2)
+
+# Undo initialization to verify
+qc_deferred.append(inverse_init_gate, [2])
+
+# Only measure qubit 2
+qc_deferred.measure(2, 0)
+
+print("Deferred Measurement Circuit (hardware-compatible):")
+qc_deferred.draw('mpl')
+
+# Simulate the deferred-measurement version
+shots = 1024
+compiled_def = transpile(qc_deferred, sim)
+def_result = sim.run(compiled_def, shots=shots).result()
+def_counts = def_result.get_counts()
+
+print(f"Counts: {def_counts}")
+zero_pct = def_counts.get('0', 0) / shots * 100
+print(f"Probability of measuring |0> on q2: {zero_pct:.1f}%")
+
+plot_histogram(def_counts,
+               title="Deferred Measurement — q2 should be |0> with ~100% probability")
+
+from qiskit_aer.noise import NoiseModel, depolarizing_error
+
+# Build a depolarizing noise model
+noise_model = NoiseModel()
+noise_model.add_all_qubit_quantum_error(depolarizing_error(0.01, 1), ['h', 'x', 'z'])
+noise_model.add_all_qubit_quantum_error(depolarizing_error(0.03, 2), ['cx', 'cz'])
+
+noisy_sim    = AerSimulator(noise_model=noise_model)
+compiled_n   = transpile(qc_deferred, noisy_sim)
+noisy_result = noisy_sim.run(compiled_n, shots=shots).result()
+noisy_counts = noisy_result.get_counts()
+
+correct   = noisy_counts.get('0', 0)
+error_pct = (noisy_counts.get('1', 0) / shots) * 100
+accuracy  = (correct / shots) * 100
+
+print(f"Noisy counts     : {noisy_counts}")
+print(f"Accuracy         : {accuracy:.2f}%")
+print(f"Experimental error rate : {error_pct:.3f}%")
+
+plot_histogram(noisy_counts,
+               title=f"Noisy Simulation | Accuracy: {accuracy:.1f}% | Error rate: {error_pct:.1f}%")
+
+# Uncomment to run on real IBM Quantum hardware
+
+# from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2 as Sampler
+# from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+#
+# # Save credentials once (comment out after first use)
+# QiskitRuntimeService.save_account(
+#     channel='ibm_quantum',
+#     token='YOUR_API_TOKEN',
+#     overwrite=True
+# )
+#
+# # Load account, find least-busy real backend with >= 3 qubits
+# service = QiskitRuntimeService(channel='ibm_quantum')
+# backend = service.least_busy(operational=True, simulator=False, min_num_qubits=3)
+# print(f"Using backend: {backend.name}")
+#
+# # Transpile for hardware
+# pm     = generate_preset_pass_manager(optimization_level=3, backend=backend)
+# isa_qc = pm.run(qc_deferred)
+#
+# # Run using SamplerV2 primitive
+# sampler = Sampler(backend)
+# job = sampler.run([isa_qc], shots=1024)
+# print(f"Job ID: {job.job_id()}")
+#
+# # Get results
+# result     = job.result()
+# hw_counts  = result[0].data.c.get_counts()
+# error_rate = hw_counts.get('1', 0) / 1024 * 100
+# print(f"Hardware counts     : {hw_counts}")
+# print(f"Experimental error rate : {error_rate:.3f}%")
+# plot_histogram(hw_counts, title=f"Real Hardware | Error rate: {error_rate:.1f}%")
+
+print("Uncomment the code above and add your IBM Quantum token to run on real hardware.")
+
+
+
+-----------------------------------------------------------------------------------------------------------
+
+
+
+!pip install qiskit qiskit-aer matplotlib --quiet
+
+from qiskit import QuantumCircuit
+from qiskit_aer import AerSimulator
+from qiskit.visualization import plot_histogram
+import matplotlib.pyplot as plt
+import random
+
+# Create quantum circuit (1 qubit, 1 classical bit)
+qc = QuantumCircuit(1, 1)
+
+# Apply Hadamard gate (creates superposition → fair coin)
+qc.h(0)
+
+# Measure qubit
+qc.measure(0, 0)
+
+# Simulator
+sim = AerSimulator()
+
+# Run experiment
+job = sim.run(qc, shots=1000)
+result = job.result()
+
+# Get results
+q_counts = result.get_counts()
+
+print("Quantum Coin Results:", q_counts)
+
+# Plot
+plot_histogram(q_counts)
+plt.show()
+
+# Classical simulation
+flips = 1000
+results = [random.randint(0, 1) for _ in range(flips)]
+
+heads = results.count(0)
+tails = results.count(1)
+
+c_counts = {'0': heads, '1': tails}
+
+print("Classical Coin Results:", c_counts)
+
+# Plot
+plot_histogram(c_counts)
+plt.show()
+
+print("\n--- Comparison ---")
+
+print("Quantum distribution:", q_counts)
+print("Classical distribution:", c_counts)
+
+# Calculate probabilities
+q_prob_0 = q_counts.get('0', 0) / 1000
+q_prob_1 = q_counts.get('1', 0) / 1000
+
+c_prob_0 = c_counts['0'] / 1000
+c_prob_1 = c_counts['1'] / 1000
+
+print("\nQuantum Probabilities -> 0:", q_prob_0, " 1:", q_prob_1)
+print("Classical Probabilities -> 0:", c_prob_0, " 1:", c_prob_1)
