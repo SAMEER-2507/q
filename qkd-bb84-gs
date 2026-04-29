@@ -1,0 +1,157 @@
+# Common setup
+!pip install qiskit
+!pip install qiskit-aer
+
+
+
+
+
+#Experiment 1 Quantum Key Distribution (QKD)
+
+#Step 1: Generate Random Bits and Bases
+n = 10
+
+alice_bits = np.random.randint(2, size=n)
+alice_bases = np.random.randint(2, size=n)
+
+print("Alice Bits:", alice_bits)
+print("Alice Bases:", alice_bases)
+
+#Step 2: Encode Qubits
+qc = QuantumCircuit(n, n)
+
+for i in range(n):
+    if alice_bits[i] == 1:
+        qc.x(i)
+    if alice_bases[i] == 1:
+        qc.h(i)
+
+qc.barrier()
+qc.draw()
+
+#Step 3: Bob Chooses Random Bases
+bob_bases = np.random.randint(2, size=n)
+print("Bob Bases:", bob_bases)
+
+for i in range(n):
+    if bob_bases[i] == 1:
+        qc.h(i)
+
+#Step 4: Measurement
+qc.measure(range(n), range(n))
+
+sim = AerSimulator()
+result = sim.run(qc, shots=1).result()
+counts = result.get_counts()
+
+print("Measurement:", counts)
+
+#Step 5: Key Extraction
+measured = list(counts.keys())[0]
+
+key = []
+
+for i in range(n):
+    if alice_bases[i] == bob_bases[i]:
+        key.append(int(measured[n-i-1]))
+
+print("Shared Key:", key)
+
+
+
+
+#Experiment 2 BB84 Protocol
+
+#Step 1: Circuit Creation
+n = 8
+alice_bits = np.random.randint(2, size=n)
+alice_bases = np.random.randint(2, size=n)
+
+qc = QuantumCircuit(n, n)
+
+for i in range(n):
+    if alice_bits[i] == 1:
+        qc.x(i)
+    if alice_bases[i] == 1:
+        qc.h(i)
+
+#Step 2: Bob Measurement
+bob_bases = np.random.randint(2, size=n)
+
+for i in range(n):
+    if bob_bases[i] == 1:
+        qc.h(i)
+
+qc.measure(range(n), range(n))
+
+#Step 3: Run Simulation
+sim = AerSimulator()
+
+result = sim.run(qc, shots=1).result()
+counts = result.get_counts()
+
+print(counts)
+
+#Step 4: Key Comparison
+measured = list(counts.keys())[0]
+
+shared = []
+
+for i in range(n):
+    if alice_bases[i] == bob_bases[i]:
+        shared.append(measured[n-i-1])
+
+print("Final Key:", shared)
+
+
+
+
+
+#Experiment 3 Grover’s Search
+
+#Step 1: Import Grover Tools
+!pip install qiskit-algorithms
+
+from qiskit.circuit.library import GroverOperator
+from qiskit_algorithms import Grover
+from qiskit.quantum_info import Statevector
+
+#Step 2 — Create the Oracle
+from qiskit import QuantumCircuit
+
+oracle = QuantumCircuit(2)
+oracle.cz(0, 1)   # phase flip for |11>
+
+oracle.draw()
+
+#Step 3 — Create the Grover Operator
+grover_operator = GroverOperator(oracle)
+grover_operator.draw()
+
+#Step 4 — Prepare Initial Superposition
+from qiskit import QuantumCircuit
+
+qc = QuantumCircuit(2, 2)
+
+qc.h([0, 1])   # create equal superposition
+
+qc.append(grover_operator, [0, 1])
+
+qc.measure([0, 1], [0, 1])
+
+qc.draw()
+
+#Step 5 — Run the Simulation
+from qiskit_aer import AerSimulator
+from qiskit import transpile
+from qiskit.visualization import plot_histogram
+
+sim = AerSimulator()
+
+compiled = transpile(qc, sim)
+
+result = sim.run(compiled, shots=1024).result()
+
+counts = result.get_counts()
+
+plot_histogram(counts)
