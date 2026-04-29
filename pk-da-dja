@@ -1,0 +1,578 @@
+!pip install qiskit qiskit-aer matplotlib pylatexenc
+
+import numpy as np
+from numpy import pi
+
+from qiskit import QuantumCircuit, transpile
+from qiskit.visualization import (
+    plot_bloch_multivector,
+    plot_histogram,
+    array_to_latex
+)
+from qiskit.quantum_info import Statevector, Operator
+from qiskit_aer import AerSimulator
+
+# Simulators
+sim     = AerSimulator()                          # general purpose
+svsim   = AerSimulator(method='statevector')      # statevector
+unisim  = AerSimulator(method='unitary')          # unitary matrix
+
+print("All imports successful!")
+
+qc_cnot = QuantumCircuit(2)
+qc_cnot.cx(0, 1)
+
+print("Standard CNOT (control=q0, target=q1):")
+qc_cnot.draw('mpl')
+
+# H ⊗ H  →  CNOT(q1→q0)  →  H ⊗ H  ≡  CNOT(q0→q1)
+
+qc_reverse = QuantumCircuit(2)
+qc_reverse.h(0)
+qc_reverse.h(1)
+qc_reverse.cx(1, 0)   # CNOT with q1 as control, q0 as target
+qc_reverse.h(0)
+qc_reverse.h(1)
+
+print("Reverse CNOT via Phase Kickback (H–CNOT–H):")
+qc_reverse.draw('mpl')
+
+U_cnot    = Operator(qc_cnot)
+U_reverse = Operator(qc_reverse)
+
+print("Unitary of Standard CNOT:")
+display(array_to_latex(U_cnot.data, prefix="U_{\\text{CNOT}} = "))
+
+print("\nUnitary of Reverse CNOT (H–CNOT–H):")
+display(array_to_latex(U_reverse.data, prefix="U_{\\text{reverse}} = "))
+
+are_equal = np.allclose(U_cnot.data, U_reverse.data)
+print(f"\nAre the two unitaries identical? {are_equal}")
+
+# Prepare |+>|-> and apply CNOT to see kickback
+# |+>|-> = H|0> ⊗ XH|0>
+
+qc_kickback = QuantumCircuit(2)
+qc_kickback.h(0)    # q0 -> |+>
+qc_kickback.x(1)    # q1 -> |1>
+qc_kickback.h(1)    # q1 -> |->
+
+print("State before CNOT (|+>|->):")
+sv_before = Statevector(qc_kickback)
+display(array_to_latex(sv_before, prefix="|\\psi\\rangle = "))
+display(plot_bloch_multivector(sv_before))
+
+# Apply CNOT
+qc_kickback.cx(0, 1)
+
+print("\nState after CNOT (phase kickback: |+>|-> -> |->|->):")
+sv_after = Statevector(qc_kickback)
+display(array_to_latex(sv_after, prefix="|\\psi'\\rangle = "))
+display(plot_bloch_multivector(sv_after))
+
+# Confirm: q0 flipped from |+> to |-> (the phase kicked back into the control)
+print("Summary of Phase Kickback:")
+print("  Before: q0 = |+>  (pointing +X on Bloch sphere)")
+print("  After : q0 = |->  (pointing -X on Bloch sphere)")
+print("  q1 stays in |->, but the phase -1 has been kicked back to q0.")
+print()
+print("  This is exactly what a CNOT with q1 as control, q0 as target would do.")
+print("  => Phase kickback implements the REVERSE CNOT.")
+
+# Controlled-T = CP(pi/4) in Qiskit 1.x
+qc_ct = QuantumCircuit(2)
+qc_ct.cp(pi/4, 0, 1)
+
+print("Controlled-T Gate Circuit:")
+display(qc_ct.draw('mpl'))
+
+U_ct = Operator(qc_ct)
+print("\nControlled-T Unitary Matrix:")
+display(array_to_latex(U_ct.data, prefix="\\text{Controlled-T} = "))
+
+# Step 1: Prepare |+>|1> and view Bloch sphere
+qc_t_before = QuantumCircuit(2)
+qc_t_before.h(0)
+qc_t_before.x(1)
+
+sv_t_before = Statevector(qc_t_before)
+print("Before Controlled-T: q0=|+>, q1=|1>")
+display(qc_t_before.draw('mpl'))
+display(array_to_latex(sv_t_before, prefix="|\\psi\\rangle = "))
+display(plot_bloch_multivector(sv_t_before))
+
+# Step 2: Apply Controlled-T and observe kickback on q0
+qc_t_after = QuantumCircuit(2)
+qc_t_after.h(0)
+qc_t_after.x(1)
+qc_t_after.cp(pi/4, 0, 1)
+
+sv_t_after = Statevector(qc_t_after)
+print("After Controlled-T: q0 rotated by pi/4 around Z-axis")
+display(qc_t_after.draw('mpl'))
+display(array_to_latex(sv_t_after, prefix="|\\psi'\\rangle = "))
+display(plot_bloch_multivector(sv_t_after))
+
+print("Phase Kickback Summary (T gate):")
+print("  q0 starts at |+> (on +X axis of Bloch sphere)")
+print("  After CT: q0 is rotated pi/4 around Z-axis")
+print("  q1 remains |1> — the phase e^(i*pi/4) kicked back into q0")
+print()
+print(f"  Before q0 state: {np.round(sv_t_before.data[:2] * np.sqrt(2), 4)} (scaled)")
+print(f"  After  q0 state: rotated by pi/4 in phase")
+
+# Version info
+import qiskit, qiskit_aer
+print(f"Qiskit version     : {qiskit.__version__}")
+print(f"Qiskit-Aer version : {qiskit_aer.__version__}")
+
+
+
+----------------------------------------------------------------------------------------------------------
+
+
+
+!pip install qiskit qiskit-aer matplotlib pylatexenc
+
+import numpy as np
+from qiskit import QuantumCircuit, transpile
+from qiskit.visualization import plot_histogram, plot_bloch_multivector, array_to_latex
+from qiskit.quantum_info import Statevector, Operator
+from qiskit_aer import AerSimulator
+import matplotlib.pyplot as plt
+
+aer_sim = AerSimulator()
+print("Imports successful!")
+
+
+def oracle_constant_0():
+    qc = QuantumCircuit(2)
+    qc.name = "f1: Constant-0"
+    return qc
+
+def oracle_constant_1():
+    qc = QuantumCircuit(2)
+    qc.x(1)
+    qc.name = "f2: Constant-1"
+    return qc
+
+def oracle_balanced_identity():
+    qc = QuantumCircuit(2)
+    qc.cx(0, 1)
+    qc.name = "f3: Balanced-Identity"
+    return qc
+
+def oracle_balanced_negation():
+    qc = QuantumCircuit(2)
+    qc.x(0)
+    qc.cx(0, 1)
+    qc.x(0)
+    qc.name = "f4: Balanced-Negation"
+    return qc
+
+all_oracles = [
+    (oracle_constant_0(), "Constant"),
+    (oracle_constant_1(), "Constant"),
+    (oracle_balanced_identity(), "Balanced"),
+    (oracle_balanced_negation(), "Balanced"),
+]
+
+# Draw all four oracles
+fig, axes = plt.subplots(1, 4, figsize=(14, 2))
+for ax, (oracle, _) in zip(axes, all_oracles):
+    oracle.draw('mpl', ax=ax)
+    ax.set_title(oracle.name, fontsize=8)
+plt.suptitle("All Four Oracle Circuits", fontsize=12, y=1.05)
+plt.tight_layout()
+plt.show()
+
+
+def deutsch_circuit(oracle):
+    dj = QuantumCircuit(2, 1)
+
+    # Step 1: Prepare q1 = |1>
+    dj.x(1)
+    dj.barrier(label="Init")
+
+    # Step 2: Hadamard on both qubits  ->  q0=|+>, q1=|->
+    dj.h(0)
+    dj.h(1)
+    dj.barrier(label="H gates")
+
+    # Step 3: Apply oracle
+    dj = dj.compose(oracle)
+    dj.barrier(label="Oracle")
+
+    # Step 4: Hadamard on input qubit q0
+    dj.h(0)
+    dj.barrier(label="Measure")
+
+    # Step 5: Measure q0 only
+    dj.measure(0, 0)
+
+    return dj
+
+print("deutsch_circuit() defined.")
+
+
+shots = 1024
+results_all = {}
+
+for oracle, true_type in all_oracles:
+    circuit = deutsch_circuit(oracle)
+    t_qc = transpile(circuit, aer_sim)
+    counts = aer_sim.run(t_qc, shots=shots).result().get_counts()
+    measured = list(counts.keys())[0]
+    verdict = "CONSTANT" if measured == '0' else "BALANCED"
+    correct = "✓" if verdict == true_type else "✗"
+    results_all[oracle.name] = counts
+    print(f"{oracle.name:<28}  Measured: '{measured}'  →  {verdict:<10}  {correct}")
+
+print("\nDecision Rule: measure '0' → CONSTANT  |  measure '1' → BALANCED")
+
+
+for oracle, _ in all_oracles:
+    circuit = deutsch_circuit(oracle)
+    print(f"\nDeutsch Circuit — {oracle.name}:")
+    display(circuit.draw('mpl'))
+
+
+fig, axes = plt.subplots(1, 4, figsize=(14, 4))
+
+colors = ['steelblue', 'steelblue', 'coral', 'coral']
+for ax, (oracle, true_type), color in zip(axes, all_oracles, colors):
+    counts = results_all[oracle.name]
+    verdict = "CONSTANT" if list(counts.keys())[0] == '0' else "BALANCED"
+    plot_histogram(counts, ax=ax, color=color,
+                   title=f"{oracle.name}\n→ {verdict}")
+
+plt.suptitle("Deutsch Algorithm — All Four Oracles (Ideal Simulator)",
+             fontsize=13, y=1.02)
+plt.tight_layout()
+plt.show()
+
+
+print("Step-by-step statevector trace (Balanced Identity Oracle)\n")
+
+steps = {
+    "Step 0 — Initial |00>": QuantumCircuit(2),
+}
+
+# Step 0: |00>
+qc0 = QuantumCircuit(2)
+sv0 = Statevector(qc0)
+print("Step 0 — Initial state |q0 q1> = |00>:")
+display(array_to_latex(sv0, prefix="|\\psi_0\\rangle = "))
+
+# Step 1: X on q1  ->  |01>
+qc1 = QuantumCircuit(2)
+qc1.x(1)
+sv1 = Statevector(qc1)
+print("\nStep 1 — X on q1: |00> → |01>:")
+display(array_to_latex(sv1, prefix="|\\psi_1\\rangle = "))
+
+# Step 2: H on both  ->  |+>|->
+qc2 = QuantumCircuit(2)
+qc2.x(1)
+qc2.h(0)
+qc2.h(1)
+sv2 = Statevector(qc2)
+print("\nStep 2 — H on both qubits: |+>|->:")
+display(array_to_latex(sv2, prefix="|\\psi_2\\rangle = "))
+display(plot_bloch_multivector(sv2))
+
+# Step 3: Apply balanced identity oracle (CNOT)
+qc3 = QuantumCircuit(2)
+qc3.x(1)
+qc3.h(0)
+qc3.h(1)
+qc3.cx(0, 1)
+sv3 = Statevector(qc3)
+print("\nStep 3 — After Balanced Oracle (CNOT):")
+display(array_to_latex(sv3, prefix="|\\psi_3\\rangle = "))
+display(plot_bloch_multivector(sv3))
+
+# Step 4: H on q0  ->  |1>|->
+qc4 = QuantumCircuit(2)
+qc4.x(1)
+qc4.h(0)
+qc4.h(1)
+qc4.cx(0, 1)
+qc4.h(0)
+sv4 = Statevector(qc4)
+print("\nStep 4 — H on q0 (before measurement):")
+display(array_to_latex(sv4, prefix="|\\psi_4\\rangle = "))
+display(plot_bloch_multivector(sv4))
+print("q0 is in |1> → measurement gives '1' → BALANCED ✓")
+
+
+print("Unitary matrices of all four oracles:\n")
+for oracle, true_type in all_oracles:
+    U = Operator(oracle)
+    print(f"{oracle.name} ({true_type}):")
+    display(array_to_latex(np.round(U.data, 3), prefix=f"U = "))
+    print()
+
+
+# Classical approach: must evaluate f(0) AND f(1) — 2 queries
+def classical_deutsch(f):
+    """
+    Classical solution: evaluate f at both inputs.
+    Requires 2 oracle queries.
+    """
+    f0, f1 = f(0), f(1)
+    oracle_calls = 2
+    result = "CONSTANT" if f0 == f1 else "BALANCED"
+    return result, oracle_calls, f0, f1
+
+# Define the four functions classically
+classical_oracles = {
+    "f1: Constant-0":        lambda x: 0,
+    "f2: Constant-1":        lambda x: 1,
+    "f3: Balanced-Identity": lambda x: x,
+    "f4: Balanced-Negation":  lambda x: 1 - x,
+}
+
+print("Classical Deutsch (2 queries required per oracle):\n")
+print(f"{'Oracle':<28} {'f(0)':<6} {'f(1)':<6} {'Queries':<10} {'Result'}")
+print("-" * 62)
+for name, f in classical_oracles.items():
+    result, calls, f0, f1 = classical_deutsch(f)
+    print(f"{name:<28} {f0:<6} {f1:<6} {calls:<10} {result}")
+
+print()
+print("Quantum Deutsch (1 query required per oracle):\n")
+print(f"{'Oracle':<28} {'Measurement':<15} {'Queries':<10} {'Result'}")
+print("-" * 62)
+for oracle, true_type in all_oracles:
+    counts = results_all[oracle.name]
+    measured = list(counts.keys())[0]
+    verdict = "CONSTANT" if measured == '0' else "BALANCED"
+    print(f"{oracle.name:<28} {'|'+measured+'>':<15} {'1':<10} {verdict}")
+
+
+fig, ax = plt.subplots(figsize=(6, 4))
+ax.bar(['Classical\n(worst case)', 'Quantum\n(Deutsch)'],
+       [2, 1], color=['coral', 'steelblue'], edgecolor='black', width=0.4)
+ax.set_ylabel('Oracle Queries Needed')
+ax.set_title('Classical vs Quantum — Deutsch Algorithm')
+ax.set_ylim(0, 3)
+for i, v in enumerate([2, 1]):
+    ax.text(i, v + 0.05, str(v), ha='center', va='bottom', fontsize=14, fontweight='bold')
+plt.tight_layout()
+plt.show()
+
+
+import qiskit, qiskit_aer
+print(f"Qiskit     : {qiskit.__version__}")
+print(f"Qiskit-Aer : {qiskit_aer.__version__}")
+
+
+---------------------------------------------------------------------------------------------------------
+
+
+
+!pip install qiskit qiskit-aer qiskit-ibm-runtime matplotlib
+
+import numpy as np
+import matplotlib.pyplot as plt
+from qiskit import QuantumCircuit, transpile
+from qiskit.visualization import plot_histogram, array_to_latex
+from qiskit.quantum_info import Statevector
+from qiskit_aer import AerSimulator
+
+# n = number of input qubits (total circuit has n+1 qubits)
+n = 3
+sim = AerSimulator()
+
+print(f"Deutsch-Jozsa for n = {n} input qubits")
+print("Imports successful!")
+
+
+def make_constant_oracle(n, output=None):
+    if output is None:
+        output = np.random.randint(2)
+
+    oracle = QuantumCircuit(n + 1)
+    if output == 1:
+        oracle.x(n)
+
+    oracle.name = f"Const-{output}"
+    return oracle, output
+
+
+!pip install pylatexenc
+
+const_oracle, const_output = make_constant_oracle(n)
+print(f"Constant Oracle — fixed output = {const_output}")
+const_oracle.draw('mpl')
+
+
+def make_balanced_oracle(n, b_str=None):
+    if b_str is None:
+        b_str = ''.join([str(np.random.randint(2)) for _ in range(n)])
+        if b_str == '0' * n:
+            b_str = '1' * n
+
+    oracle = QuantumCircuit(n + 1)
+
+    # Step 1: X-gates where b_str[i] == '1'
+    for i in range(len(b_str)):
+        if b_str[i] == '1':
+            oracle.x(i)
+    oracle.barrier()
+
+    # Step 2: CNOT from each input to output
+    for i in range(n):
+        oracle.cx(i, n)
+    oracle.barrier()
+
+    # Step 3: Undo X-gates
+    for i in range(len(b_str)):
+        if b_str[i] == '1':
+            oracle.x(i)
+
+    oracle.name = f"Balanced(b={b_str})"
+    return oracle, b_str
+
+
+bal_oracle, b_str = make_balanced_oracle(n, b_str='101')
+print(f"Balanced Oracle — secret string b = '{b_str}'")
+bal_oracle.draw('mpl')
+
+
+def deutsch_jozsa_circuit(n, oracle):
+    dj = QuantumCircuit(n + 1, n)
+
+    # Step 1: H on all input qubits
+    for q in range(n):
+        dj.h(q)
+
+    # Step 2: Output qubit into |->
+    dj.x(n)
+    dj.h(n)
+    dj.barrier(label='Init')
+
+    # Step 3: Oracle
+    dj = dj.compose(oracle)
+    dj.barrier(label='Oracle')
+
+    # Step 4: H on input qubits again
+    for q in range(n):
+        dj.h(q)
+    dj.barrier(label='Final H')
+
+    # Step 5: Measure input register
+    for i in range(n):
+        dj.measure(i, i)
+
+    return dj
+
+
+print("deutsch_jozsa_circuit() defined.")
+
+
+dj_const = deutsch_jozsa_circuit(n, const_oracle)
+print(f"DJ Circuit — Constant Oracle (output={const_output}):")
+dj_const.draw('mpl')
+
+
+shots = 1024
+t_qc = transpile(dj_const, sim)
+counts_const = sim.run(t_qc, shots=shots).result().get_counts()
+
+verdict = 'CONSTANT' if all(k == '0' * n for k in counts_const) else 'BALANCED'
+print(f"Counts  : {counts_const}")
+print(f"Verdict : {verdict}  (expected: CONSTANT)")
+
+assert counts_const.get('0' * n, 0) == shots, "Expected 100% |000>!"
+print("Assertion passed.")
+
+plot_histogram(counts_const, title=f"Constant Oracle (output={const_output}) — all |{'0' * n}>")
+
+
+dj_bal = deutsch_jozsa_circuit(n, bal_oracle)
+print(f"DJ Circuit — Balanced Oracle (b='{b_str}'):")
+dj_bal.draw('mpl')
+
+
+t_qc = transpile(dj_bal, sim)
+counts_bal = sim.run(t_qc, shots=shots).result().get_counts()
+
+verdict = 'CONSTANT' if all(k == '0' * n for k in counts_bal) else 'BALANCED'
+print(f"Counts  : {counts_bal}")
+print(f"Verdict : {verdict}  (expected: BALANCED)")
+
+assert counts_bal.get('0' * n, 0) == 0, "Expected 0% |000>!"
+print("Assertion passed.")
+
+plot_histogram(counts_bal, title=f"Balanced Oracle (b='{b_str}') — no |{'0' * n}>")
+
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+plot_histogram(counts_const, ax=axes[0],
+               title=f"Constant (output={const_output}) — all |{'0' * n}>")
+plot_histogram(counts_bal, ax=axes[1],
+               title=f"Balanced (b='{b_str}') — no |{'0' * n}>")
+plt.suptitle("Deutsch-Jozsa Algorithm — Ideal Simulator", fontsize=14, y=1.02)
+plt.tight_layout()
+plt.show()
+
+
+all_b = [format(i, f'0{n}b') for i in range(1, 2**n)]
+
+print(f"Testing all {len(all_b)} non-trivial balanced oracles for n={n}:")
+print(f"{'b_str':<8} {'Counts':<35} {'Verdict':<10} Pass?")
+print("-" * 65)
+
+for b in all_b:
+    oracle, _ = make_balanced_oracle(n, b_str=b)
+    dj = deutsch_jozsa_circuit(n, oracle)
+    counts = sim.run(transpile(dj, sim), shots=512).result().get_counts()
+    verdict = 'CONSTANT' if all(k == '0' * n for k in counts) else 'BALANCED'
+    passed = 'PASS' if verdict == 'BALANCED' else 'FAIL'
+    print(f"{b:<8} {str(counts):<35} {verdict:<10} {passed}")
+
+
+print(f"{'n':<4} {'Oracle':<10} {'Verdict':<10} {'Quantum queries':<17} {'Classical worst case'}")
+print("-" * 70)
+
+for test_n in [1, 2, 3, 4, 5]:
+    for otype in ['constant', 'balanced']:
+        if otype == 'constant':
+            oracle, _ = make_constant_oracle(test_n, output=np.random.randint(2))
+        else:
+            oracle, _ = make_balanced_oracle(test_n)
+
+        dj = deutsch_jozsa_circuit(test_n, oracle)
+        counts = sim.run(transpile(dj, sim), shots=256).result().get_counts()
+        verdict = 'CONSTANT' if all(k == '0' * test_n for k in counts) else 'BALANCED'
+        print(f"{test_n:<4} {otype:<10} {verdict:<10} {'1':<17} {2**(test_n - 1) + 1}")
+
+print("\nQuantum always uses exactly 1 query regardless of n!")
+
+
+from qiskit_aer.noise import NoiseModel, depolarizing_error
+
+noise_model = NoiseModel()
+noise_model.add_all_qubit_quantum_error(depolarizing_error(0.01, 1), ['h', 'x'])
+noise_model.add_all_qubit_quantum_error(depolarizing_error(0.02, 2), ['cx'])
+
+noisy_sim = AerSimulator(noise_model=noise_model)
+n_const = sim.run(transpile(dj_const, noisy_sim), shots=shots).result().get_counts()
+n_bal = sim.run(transpile(dj_bal, noisy_sim), shots=shots).result().get_counts()
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+plot_histogram(n_const, ax=axes[0], title=f"Noisy — Constant (output={const_output})")
+plot_histogram(n_bal, ax=axes[1], title=f"Noisy — Balanced (b='{b_str}')")
+plt.suptitle("Deutsch-Jozsa — Noisy Simulation (1% 1Q / 2% 2Q errors)", fontsize=13, y=1.02)
+plt.tight_layout()
+plt.show()
+
+print(f"Noisy constant: non-|{'0' * n}> leakage = {sum(v for k, v in n_const.items() if k != '0' * n)} / {shots}")
+print(f"Noisy balanced: spurious |{'0' * n}> count = {n_bal.get('0' * n, 0)} / {shots}")
+
+
+import qiskit, qiskit_aer
+print(f"Qiskit     : {qiskit.__version__}")
+print(f"Qiskit-Aer : {qiskit_aer.__version__}")
